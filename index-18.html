@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IBATPA EDI Viewer — HIPAA X12 5010</title>
+  <meta name="description" content="IBATPA EDI Viewer — HIPAA X12 5010 SNIP Level 1-6 Validation. Built by Tharun Kilaru, International Benefits Administrators." />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: #080e1d; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+    #root { min-height: 100vh; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #0d1526; }
+    ::-webkit-scrollbar-thumb { background: #1a2d4e; border-radius: 3px; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 0.35s ease; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useCallback, useRef, useEffect } = React;
+
+    // ─── HIPAA CODE TABLES ───────────────────────────────────────
+    const REL={'18':'Self','01':'Spouse','19':'Child','21':'Unknown','34':'Other Adult','15':'Ward','17':'Step Child','23':'Sponsored Dependent','25':'Ex-Spouse','31':'Mother','32':'Father','53':'Life Partner','G8':'Other Relationship'};
+    const MTYPE={'001':'Change','021':'Addition','024':'Cancellation or Termination','025':'Reinstatement','030':'Audit or Compare','033':'COBRA Begin','034':'COBRA End'};
+    const MREASON={'20':'Active','28':'Initial Enrollment','29':'Benefits Terminated','38':'Termination of Benefits','AI':'Initial Enrollment','XN':'Name Change','01':'Divorce','02':'Birth','03':'Death','04':'Retirement','05':'Adoption','09':'COBRA Election','14':'Involuntary Disenrollment','15':'Military Duty'};
+    const BSTATUS={A:'Active',C:'COBRA',S:'Surviving Insured',T:'Tax Levy'};
+    const EMPST={AC:'Active Full-Time',FT:'Full-Time',PT:'Part-Time',RT:'Retired',TE:'Terminated','L1':'Leave of Absence'};
+    const ENTITY={P5:'Plan Sponsor',IN:'Insurer',IL:'Insured or Subscriber','1P':'Provider',PR:'Payer','85':'Billing Provider','87':'Pay-to Provider',FA:'Facility',QC:'Patient','41':'Submitter','40':'Receiver','36':'Employer','2B':'Third-Party Administrator',EX:'Eligible Survivor'};
+    const IDQUAL={FI:"Federal Taxpayer's ID",MI:'Member Identification',PI:'Payer Identification',XX:'National Provider Identifier (NPI)',ZZ:'Mutually Defined','34':'Social Security Number',EI:"Employer's ID Number",HN:'Health Insurance Claim Number'};
+    const DATEQUAL={'348':'Benefit Begin','349':'Benefit End','300':'Enrollment Signature Date','301':'Maintenance Effective Date','303':'Maintenance Expiration','356':'Eligibility Begin','357':'Eligibility End','007':'Effective','036':'Policy Expiration','153':'Date of Service','435':'Admission Date','096':'Discharge Date','431':'Onset of Current Symptoms','454':'Initial Treatment','472':'Service Date','439':'Accident Date'};
+    const DATEFMT={D8:'Date Expressed In Format Ccyymmdd',RD8:'Range of Dates Ccyymmdd-Ccyymmdd',D6:'Date In Format Yymmdd'};
+    const GENDER={M:'Male',F:'Female',U:'Unknown'};
+    const COVERAGE={EMP:'Employee Only',ESP:'Employee and Spouse',FAM:'Family',IND:'Individual',SPC:'Spouse and Children',ECH:'Employee and Children',TWO:'Two-Party'};
+    const INSLINE={HLT:'Health',DEN:'Dental',VIS:'Vision',ANC:'Ancillary',FAC:'Facility',PPO:'Preferred Provider Org.',HMO:'Health Maintenance Org.'};
+    const GSCODE={BE:'Benefit Enrollment and Maintenance (834)',FA:'Functional Acknowledgment (997/999)',HC:'Health Care Claim (837)',HP:'Health Care Claim Payment/Advice (835)',HS:'Eligibility Inquiry (270)',HB:'Eligibility Response (271)',HR:'Claim Status Request (276)',HN:'Claim Status Notification (277)'};
+    const TXSET={'834':'Benefit Enrollment And Maintenance','837':'Health Care Claim','835':'Health Care Claim Payment/Advice','270':'Eligibility, Coverage or Benefit Inquiry','271':'Eligibility, Coverage or Benefit Response','276':'Health Care Claim Status Request','277':'Health Care Claim Status Notification','999':'Implementation Acknowledgment','997':'Functional Acknowledgment'};
+    const POS={'11':'Office','12':'Home','21':'Inpatient Hospital','22':'On Campus-Outpatient Hospital','23':'Emergency Room','24':'Ambulatory Surgical Center','31':'Skilled Nursing Facility','32':'Nursing Facility','81':'Independent Laboratory','20':'Urgent Care Facility','51':'Inpatient Psychiatric Facility'};
+    const MARITAL={I:'Single',M:'Married',R:'Registered Domestic Partner',S:'Separated',U:'Unknown',W:'Widowed',D:'Divorced'};
+    const STUDENT={F:'Full-Time',N:'Not a Student',P:'Part-Time'};
+    const VALID_STATES=new Set(['AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC','PR','VI','GU']);
+    const REFREASONS={'0F':'Subscriber Number','1L':'Group or Policy Number','ZZ':'Mutually Defined','23':'Client Number','CE':'Class of Contract Code','CT':'Contract Number','EA':'Medical Record ID','F6':'Health Insurance Claim Number','G1':'Prior Authorization Number','IG':'Insurance Policy Number','SY':'Social Security Number','Y4':'Agency Claim Number','3H':'Case Number','P5':'Plan ID','QQ':'Member ID Number'};
+    const CLPSTATUS={'1':'Processed as Primary','2':'Processed as Secondary','3':'Processed as Tertiary','4':'Denied','19':'Processed as Primary, Forwarded to Payer','22':'Reversal of Previous Payment','23':'Not Our Claim'};
+    const CASGROUP={CO:'Contractual Obligations',CR:'Corrections and Reversals',OA:'Other Adjustments',PI:'Payer Initiated Reductions',PR:'Patient Responsibility'};
+
+    // ─── DATE VALIDATION ────────────────────────────────────────
+    function isValidD8(s){
+      if(!s||s.length!==8)return false;
+      const y=parseInt(s.slice(0,4)),m=parseInt(s.slice(4,6)),d=parseInt(s.slice(6,8));
+      if(m<1||m>12||d<1||y<1800||y>2100)return false;
+      return d<=new Date(y,m,0).getDate();
+    }
+
+    // ─── SNIP ENGINE ─────────────────────────────────────────────
+    function mkErr(level,severity,seg,field,message){return{level,severity,seg,field,message,id:Math.random().toString(36).slice(2)};}
+
+    function snip1(rawSegs){
+      const e=[];
+      if(!rawSegs.length){e.push(mkErr(1,'ERROR','ISA','ISA','File is empty'));return e;}
+      const isa=rawSegs[0].split('*');
+      if(isa[0]!=='ISA'){e.push(mkErr(1,'ERROR','ISA','ISA01','File must begin with ISA segment'));return e;}
+      if(isa.length<17)e.push(mkErr(1,'ERROR','ISA','ISA','ISA requires 16 data elements, found '+(isa.length-1)));
+      if(isa[13]&&!/^\d{9}$/.test(isa[13].trim()))e.push(mkErr(1,'ERROR','ISA','ISA13','ISA13 Control Number must be 9 digits, found: '+isa[13].trim()));
+      if(isa[15]&&!['T','P','I'].includes(isa[15]))e.push(mkErr(1,'ERROR','ISA','ISA15','ISA15 must be T or P, found: '+isa[15]));
+      const ieaArr=rawSegs.filter(s=>s.split('*')[0]==='IEA');
+      if(!ieaArr.length)e.push(mkErr(1,'ERROR','IEA','IEA','Missing IEA — interchange not properly terminated'));
+      const gsCount=rawSegs.filter(s=>s.split('*')[0]==='GS').length;
+      const geCount=rawSegs.filter(s=>s.split('*')[0]==='GE').length;
+      if(gsCount!==geCount)e.push(mkErr(1,'ERROR','GS/GE','--','GS count ('+gsCount+') does not match GE count ('+geCount+')'));
+      const stCount=rawSegs.filter(s=>s.split('*')[0]==='ST').length;
+      const seCount=rawSegs.filter(s=>s.split('*')[0]==='SE').length;
+      if(stCount!==seCount)e.push(mkErr(1,'ERROR','ST/SE','--','ST count ('+stCount+') does not match SE count ('+seCount+')'));
+      if(ieaArr.length){const iea=ieaArr[0].split('*');if(iea[1]&&parseInt(iea[1])!==gsCount)e.push(mkErr(1,'ERROR','IEA','IEA01','IEA01 ('+iea[1]+') does not match GS count ('+gsCount+')'));if(isa[13]&&iea[2]&&isa[13].trim()!==iea[2].trim())e.push(mkErr(1,'ERROR','ISA/IEA','ISA13/IEA02','Control number mismatch: ISA13='+isa[13].trim()+' vs IEA02='+iea[2].trim()));}
+      return e;
+    }
+
+    function snip2(ts){
+      const e=[],body=ts._rawBody||[],ids=body.map(s=>s.elements[0]);
+      if(ts.code==='834'){
+        if(!ids.includes('BGN'))e.push(mkErr(2,'ERROR','BGN','BGN','834 requires BGN (Beginning Segment)'));
+        else{const bgn=body.find(s=>s.elements[0]==='BGN');if(!['00','15','22','46'].includes(bgn.elements[1]))e.push(mkErr(2,'ERROR','BGN','BGN01','BGN01 invalid: '+bgn.elements[1]+' — valid: 00,15,22,46'));}
+        if(!body.find(s=>s.elements[0]==='N1'&&s.elements[1]==='P5'))e.push(mkErr(2,'ERROR','N1','Loop1000A','834 requires N1*P5 (Plan Sponsor)'));
+        if(!body.find(s=>s.elements[0]==='N1'&&['IN','PR'].includes(s.elements[1])))e.push(mkErr(2,'ERROR','N1','Loop1000B','834 requires N1*IN (Payer)'));
+        body.filter(s=>s.elements[0]==='INS').forEach(function(ins,idx){
+          if(!ins.elements[1])e.push(mkErr(2,'ERROR','INS','INS'+(idx+1)+'-01','INS01 Member Indicator required'));
+          if(!ins.elements[2])e.push(mkErr(2,'ERROR','INS','INS'+(idx+1)+'-02','INS02 Relationship Code required'));
+          if(!ins.elements[3])e.push(mkErr(2,'ERROR','INS','INS'+(idx+1)+'-03','INS03 Maintenance Type Code required'));
+          if(!ins.elements[5])e.push(mkErr(2,'ERROR','INS','INS'+(idx+1)+'-05','INS05 Benefit Status Code required'));
+          if(ins.elements[5]&&!BSTATUS[ins.elements[5]])e.push(mkErr(2,'WARN','INS','INS'+(idx+1)+'-05','INS05 unrecognized: '+ins.elements[5]));
+        });
+        if(body.filter(s=>s.elements[0]==='INS').length>0&&!body.find(s=>s.elements[0]==='NM1'&&s.elements[1]==='IL'))e.push(mkErr(2,'ERROR','NM1','Loop2100A','834 Loop 2100A requires NM1*IL (Member Name)'));
+      }
+      if(ts.code==='837'){
+        if(!ids.includes('BHT'))e.push(mkErr(2,'ERROR','BHT','BHT','837 requires BHT segment'));
+        if(!body.find(s=>s.elements[0]==='NM1'&&s.elements[1]==='41'))e.push(mkErr(2,'ERROR','NM1','Loop1000A','837 requires NM1*41 (Submitter)'));
+        if(!body.find(s=>s.elements[0]==='NM1'&&s.elements[1]==='40'))e.push(mkErr(2,'ERROR','NM1','Loop1000B','837 requires NM1*40 (Receiver)'));
+        if(!ids.includes('HL'))e.push(mkErr(2,'ERROR','HL','--','837 requires HL segments'));
+        body.filter(s=>s.elements[0]==='CLM').forEach(function(clm,idx){
+          if(!clm.elements[1])e.push(mkErr(2,'ERROR','CLM','CLM'+(idx+1)+'-01',"CLM01 Claim ID required"));
+          if(!clm.elements[2])e.push(mkErr(2,'ERROR','CLM','CLM'+(idx+1)+'-02','CLM02 Charge Amount required'));
+          if(clm.elements[2]&&isNaN(parseFloat(clm.elements[2])))e.push(mkErr(2,'ERROR','CLM','CLM'+(idx+1)+'-02','CLM02 must be numeric'));
+        });
+        body.filter(s=>s.elements[0]==='NM1'&&s.elements[8]==='XX').forEach(function(nm1){
+          const npi=nm1.elements[9];
+          if(!npi)e.push(mkErr(2,'ERROR','NM1','NM1-09','NPI required when NM108=XX'));
+          else if(!/^\d{10}$/.test(npi))e.push(mkErr(2,'ERROR','NM1','NM1-09','NPI must be 10 digits, found: '+npi));
+        });
+        let lxNum=0;
+        body.filter(s=>s.elements[0]==='LX').forEach(function(lx){lxNum++;if(parseInt(lx.elements[1])!==lxNum)e.push(mkErr(2,'WARN','LX','LX01','LX01 must increment from 1 — expected '+lxNum+' found '+lx.elements[1]));});
+      }
+      if(ts.code==='835'){
+        if(!ids.includes('BPR'))e.push(mkErr(2,'ERROR','BPR','BPR','835 requires BPR (Financial Information)'));
+        if(!ids.includes('TRN'))e.push(mkErr(2,'WARN','TRN','TRN','835 TRN (Trace Number) recommended'));
+        const bpr=body.find(s=>s.elements[0]==='BPR');
+        if(bpr){if(bpr.elements[2]&&isNaN(parseFloat(bpr.elements[2])))e.push(mkErr(2,'ERROR','BPR','BPR02','BPR02 must be numeric'));if(!['C','D'].includes(bpr.elements[3]))e.push(mkErr(2,'WARN','BPR','BPR03','BPR03 must be C or D'));}
+        body.filter(s=>s.elements[0]==='CLP').forEach(function(clp,idx){if(!clp.elements[1])e.push(mkErr(2,'ERROR','CLP','CLP'+(idx+1)+'-01','CLP01 required'));if(!clp.elements[2])e.push(mkErr(2,'ERROR','CLP','CLP'+(idx+1)+'-02','CLP02 required'));});
+      }
+      return e;
+    }
+
+    function snip3(ts){
+      const e=[],body=ts._rawBody||[];
+      if(ts.code==='837'){
+        body.filter(s=>s.elements[0]==='CLM').forEach(function(clm,ci){
+          const clmAmt=parseFloat(clm.elements[2])||0;let inClaim=false,lineTotal=0;
+          body.forEach(function(seg){if(seg===clm){inClaim=true;return;}if(inClaim&&(seg.elements[0]==='CLM'||seg.elements[0]==='HL'))inClaim=false;if(inClaim&&seg.elements[0]==='SV1')lineTotal+=parseFloat(seg.elements[2])||0;});
+          if(lineTotal>0&&Math.abs(lineTotal-clmAmt)>0.01)e.push(mkErr(3,'WARN','CLM','CLM'+(ci+1)+'-02','SNIP3: CLM02 ($'+clmAmt.toFixed(2)+') vs SV1 sum ($'+lineTotal.toFixed(2)+')'));
+        });
+      }
+      if(ts.code==='835'){
+        const bpr=body.find(s=>s.elements[0]==='BPR');
+        const totalPaid=body.filter(s=>s.elements[0]==='CLP').reduce(function(sum,clp){return sum+(parseFloat(clp.elements[4])||0);},0);
+        if(bpr&&totalPaid>0){const bprAmt=parseFloat(bpr.elements[2])||0;if(Math.abs(bprAmt-totalPaid)>0.01)e.push(mkErr(3,'WARN','BPR','BPR02','SNIP3: BPR02 ($'+bprAmt.toFixed(2)+') vs CLP sum ($'+totalPaid.toFixed(2)+')'));}
+        body.filter(s=>s.elements[0]==='SVC').forEach(function(svc,idx){const charged=parseFloat(svc.elements[2])||0,paid=parseFloat(svc.elements[3])||0;if(paid>charged)e.push(mkErr(3,'ERROR','SVC','SVC'+(idx+1)+'-03','SNIP3: Paid ($'+paid+') exceeds charged ($'+charged+')'));});
+      }
+      return e;
+    }
+
+    function snip4(ts){
+      const e=[],body=ts._rawBody||[];
+      body.filter(s=>s.elements[0]==='NM1').forEach(function(nm1,idx){
+        if(nm1.elements[2]==='1'&&!nm1.elements[3])e.push(mkErr(4,'ERROR','NM1','NM1'+(idx+1)+'-03','SNIP4: NM102=1 (Person) requires NM103 Last Name'));
+        if(nm1.elements[8]&&!nm1.elements[9])e.push(mkErr(4,'ERROR','NM1','NM1'+(idx+1)+'-09','SNIP4: NM108 ('+nm1.elements[8]+') present but NM109 missing'));
+        if(nm1.elements[9]&&!nm1.elements[8])e.push(mkErr(4,'ERROR','NM1','NM1'+(idx+1)+'-08','SNIP4: NM109 present but NM108 qualifier missing'));
+      });
+      body.filter(s=>s.elements[0]==='DMG').forEach(function(dmg,idx){
+        if(!dmg.elements[1])e.push(mkErr(4,'ERROR','DMG','DMG'+(idx+1)+'-01','SNIP4: DMG01 Date Format Qualifier missing'));
+        if(!dmg.elements[2])e.push(mkErr(4,'ERROR','DMG','DMG'+(idx+1)+'-02','SNIP4: DMG02 Date of Birth missing'));
+        if(dmg.elements[1]==='D8'&&dmg.elements[2]&&!isValidD8(dmg.elements[2]))e.push(mkErr(4,'ERROR','DMG','DMG'+(idx+1)+'-02','SNIP4: Birth Date invalid — '+dmg.elements[2]));
+      });
+      body.filter(s=>s.elements[0]==='DTP').forEach(function(dtp,idx){
+        if(!dtp.elements[1])e.push(mkErr(4,'ERROR','DTP','DTP'+(idx+1)+'-01','SNIP4: DTP01 qualifier required'));
+        if(!dtp.elements[2])e.push(mkErr(4,'ERROR','DTP','DTP'+(idx+1)+'-02','SNIP4: DTP02 format qualifier required'));
+        if(!dtp.elements[3])e.push(mkErr(4,'ERROR','DTP','DTP'+(idx+1)+'-03','SNIP4: DTP03 date value required'));
+      });
+      body.filter(s=>s.elements[0]==='REF').forEach(function(ref,idx){
+        if(!ref.elements[1])e.push(mkErr(4,'ERROR','REF','REF'+(idx+1)+'-01','SNIP4: REF01 qualifier required'));
+        if(!ref.elements[2])e.push(mkErr(4,'ERROR','REF','REF'+(idx+1)+'-02','SNIP4: REF02 value required'));
+      });
+      if(ts.code==='834'){body.filter(s=>s.elements[0]==='HD').forEach(function(hd,idx){if(!hd.elements[1])e.push(mkErr(4,'ERROR','HD','HD'+(idx+1)+'-01','SNIP4: HD01 Maintenance Type Code required'));if(!hd.elements[5])e.push(mkErr(4,'INFO','HD','HD'+(idx+1)+'-05','SNIP4: HD05 Coverage Level Code recommended'));});}
+      return e;
+    }
+
+    function snip5(ts){
+      const e=[],body=ts._rawBody||[];
+      body.filter(s=>s.elements[0]==='DTP').forEach(function(dtp,idx){if(dtp.elements[2]==='D8'&&dtp.elements[3]&&!isValidD8(dtp.elements[3]))e.push(mkErr(5,'ERROR','DTP','DTP'+(idx+1)+'-03','SNIP5: Invalid date "'+dtp.elements[3]+'" — does not exist in calendar'));});
+      body.filter(s=>s.elements[0]==='N4').forEach(function(n4,idx){
+        const state=n4.elements[2];if(state&&!VALID_STATES.has(state.toUpperCase()))e.push(mkErr(5,'WARN','N4','N4'+(idx+1)+'-02','SNIP5: "'+state+'" is not a valid US state code'));
+        const zip=n4.elements[3];if(zip&&!/^\d{5}(-\d{4})?$/.test(zip))e.push(mkErr(5,'WARN','N4','N4'+(idx+1)+'-03','SNIP5: ZIP "'+zip+'" invalid format'));
+      });
+      if(ts.code==='837'){
+        body.filter(s=>s.elements[0]==='HI').forEach(function(hi,idx){
+          hi.elements.slice(1).filter(Boolean).forEach(function(el,ei){
+            const parts=el.split(':'),qualifier=parts[0],code=parts[1];
+            if((qualifier==='ABK'||qualifier==='ABF'||qualifier==='BK')&&code){if(!/^[A-Z]/.test(code))e.push(mkErr(5,'ERROR','HI','HI'+(idx+1)+'-'+(ei+1),'SNIP5: ICD-10 "'+code+'" must start with A-Z'));if(code.length<3||code.length>7)e.push(mkErr(5,'WARN','HI','HI'+(idx+1)+'-'+(ei+1),'SNIP5: ICD-10 "'+code+'" length ('+code.length+') outside range 3-7'));}
+            if(qualifier==='HC'&&code&&!/^\d{5}/.test(code))e.push(mkErr(5,'WARN','HI','HI'+(idx+1)+'-'+(ei+1),'SNIP5: CPT "'+code+'" should start with 5 digits'));
+          });
+        });
+        body.filter(s=>s.elements[0]==='CLM').forEach(function(clm,idx){const loc=clm.elements[5];if(loc){const pos=loc.split(':')[0];if(pos&&!POS[pos])e.push(mkErr(5,'WARN','CLM','CLM'+(idx+1)+'-05','SNIP5: Place of Service "'+pos+'" not in valid HIPAA code set'));}});
+      }
+      if(ts.code==='834'){
+        body.filter(s=>s.elements[0]==='INS').forEach(function(ins,idx){
+          if(ins.elements[2]&&!REL[ins.elements[2]])e.push(mkErr(5,'WARN','INS','INS'+(idx+1)+'-02','SNIP5: Relationship Code "'+ins.elements[2]+'" not valid'));
+          if(ins.elements[8]&&!EMPST[ins.elements[8]])e.push(mkErr(5,'WARN','INS','INS'+(idx+1)+'-08','SNIP5: Employment Status "'+ins.elements[8]+'" not valid'));
+        });
+        body.filter(s=>s.elements[0]==='HD').forEach(function(hd,idx){
+          if(hd.elements[3]&&!INSLINE[hd.elements[3]])e.push(mkErr(5,'WARN','HD','HD'+(idx+1)+'-03','SNIP5: Insurance Line "'+hd.elements[3]+'" not valid'));
+          if(hd.elements[5]&&!COVERAGE[hd.elements[5]])e.push(mkErr(5,'WARN','HD','HD'+(idx+1)+'-05','SNIP5: Coverage Level "'+hd.elements[5]+'" not valid'));
+        });
+      }
+      return e;
+    }
+
+    function snip6(ts){
+      const e=[],body=ts._rawBody||[];
+      if(ts.code==='837'){
+        const clmCount=body.filter(s=>s.elements[0]==='CLM').length;const sv1Count=body.filter(s=>s.elements[0]==='SV1').length;
+        if(clmCount>0&&sv1Count===0)e.push(mkErr(6,'WARN','SV1','--','SNIP6: 837P should include SV1 (Professional Service)'));
+        body.filter(s=>s.elements[0]==='LX').forEach(function(lx){
+          const lxPos=body.indexOf(lx);const nextLx=body.findIndex(function(s,i){return i>lxPos&&s.elements[0]==='LX';});
+          const slice=body.slice(lxPos+1,nextLx>-1?nextLx:undefined);
+          if(!slice.some(s=>s.elements[0]==='DTP'&&s.elements[1]==='472'))e.push(mkErr(6,'WARN','DTP','LX'+lx.elements[1],'SNIP6: LX*'+lx.elements[1]+' missing DTP*472 (Service Date)'));
+        });
+        const billing=body.find(s=>s.elements[0]==='NM1'&&s.elements[1]==='85');
+        if(billing&&billing.elements[8]!=='XX')e.push(mkErr(6,'WARN','NM1','NM1*85','SNIP6: Billing Provider should use XX (NPI) qualifier'));
+      }
+      if(ts.code==='834'){
+        body.filter(s=>s.elements[0]==='INS'&&s.elements[5]==='C').forEach(function(ins,idx){e.push(mkErr(6,'INFO','INS','INS'+(idx+1),'SNIP6: COBRA member — verify DTP*348/349 in Loop 2300'));});
+        body.filter(s=>s.elements[0]==='INS'&&s.elements[3]==='024').forEach(function(ins,idx){
+          const insPos=body.indexOf(ins);const nextIns=body.findIndex(function(s,i){return i>insPos&&s.elements[0]==='INS';});
+          const slice=body.slice(insPos,nextIns>-1?nextIns:undefined);
+          if(!slice.some(s=>s.elements[0]==='DTP'&&['349','357','303'].includes(s.elements[1])))e.push(mkErr(6,'WARN','DTP','INS'+(idx+1),'SNIP6: Termination member should have DTP*349 (Benefit End Date)'));
+        });
+      }
+      if(ts.code==='835'){
+        body.filter(s=>s.elements[0]==='CLP').forEach(function(clp,idx){
+          const clpPos=body.indexOf(clp);const nextClp=body.findIndex(function(s,i){return i>clpPos&&s.elements[0]==='CLP';});
+          const slice=body.slice(clpPos+1,nextClp>-1?nextClp:undefined);
+          if(!slice.some(s=>s.elements[0]==='SVC'))e.push(mkErr(6,'INFO','SVC','CLP'+(idx+1),'SNIP6: CLP should include SVC (Service Payment)'));
+          if(['4','22','23'].includes(clp.elements[2])&&!slice.some(s=>s.elements[0]==='CAS'))e.push(mkErr(6,'WARN','CAS','CLP'+(idx+1),'SNIP6: Denied claim should include CAS adjustment codes'));
+        });
+      }
+      return e;
+    }
+
+    function runValidation(parsed){
+      const r={s1:[],s2:[],s3:[],s4:[],s5:[],s6:[],errors:0,warnings:0,info:0,total:0};
+      if(!parsed||parsed.error)return r;
+      r.s1=snip1(parsed._rawSegs||[]);
+      (parsed.functionalGroups||[]).forEach(function(fg){(fg.transactionSets||[]).forEach(function(ts){r.s2=r.s2.concat(snip2(ts));r.s3=r.s3.concat(snip3(ts));r.s4=r.s4.concat(snip4(ts));r.s5=r.s5.concat(snip5(ts));r.s6=r.s6.concat(snip6(ts));});});
+      const all=r.s1.concat(r.s2,r.s3,r.s4,r.s5,r.s6);
+      r.total=all.length;r.errors=all.filter(x=>x.severity==='ERROR').length;r.warnings=all.filter(x=>x.severity==='WARN').length;r.info=all.filter(x=>x.severity==='INFO').length;
+      return r;
+    }
+
+    // ─── SEGMENT PARSER ──────────────────────────────────────────
+    function mf(num,name,val,code){if(val===undefined||val===null||val==='')return null;return{num:String(num).padStart(2,'0'),name,value:val,code:code||null};}
+    function dtpF(val,fmt){if(!val)return null;if(fmt==='D8'&&!isValidD8(val))return{num:'03',name:'Date Value',value:val,error:'Invalid Date — '+val+' does not exist in calendar'};return{num:'03',name:fmt==='RD8'?'Date Range':'Date Value',value:val};}
+
+    function parseSegment(seg){
+      const els=seg.elements,id=els[0],segErrors=[];
+      let r={raw:seg.raw,segId:id,name:id+' - Segment',fields:[],errors:segErrors};
+      if(id==='BGN'){r.name='BGN - Beginning Segment';r.fields=[mf('01','Transaction Set Purpose Code',els[1],({'00':'Original','15':'Re-Submission','22':'Information Copy','46':'Acknowledgment'})[els[1]]||els[1]),mf('02','Reference Identification',els[2]),mf('03','Date',els[3]),mf('04','Time',els[4]),mf('08','Action Code',els[8],({'2':'Add','4':'Change','1':'Original'})[els[8]])];}
+      else if(id==='REF'){r.name='REF - Reference Identification';r.fields=[mf('01','Reference ID Qualifier',els[1],REFREASONS[els[1]]||els[1]),mf('02','Reference Identification',els[2]),mf('03','Description',els[3])];}
+      else if(id==='DTP'){const q=els[1],fm=els[2];r.name='DTP - '+(DATEQUAL[q]||'Health Coverage Dates');const d3=dtpF(els[3],fm);if(d3&&d3.error)segErrors.push({message:d3.error});r.fields=[mf('01','Date Time Qualifier',q,DATEQUAL[q]),mf('02','Date Format Qualifier',fm,DATEFMT[fm]),d3];}
+      else if(id==='INS'){r.name='INS - Member Level Detail';r.fields=[mf('01','Member Indicator',els[1],({'Y':'Yes','N':'No'})[els[1]]),mf('02','Individual Relationship Code',els[2],REL[els[2]]),mf('03','Maintenance Type Code',els[3],MTYPE[els[3]]),mf('04','Maintenance Reason Code',els[4],MREASON[els[4]]),mf('05','Benefit Status Code',els[5],BSTATUS[els[5]]),mf('06','Medicare Status Code',els[6]),mf('07','COBRA Event Code',els[7]),mf('08','Employment Status Code',els[8],EMPST[els[8]]),mf('09','Student Status Code',els[9],STUDENT[els[9]]),mf('10','Handicap Indicator',els[10],({'Y':'Yes','N':'No'})[els[10]])];}
+      else if(id==='NM1'){r.name='NM1 - '+(ENTITY[els[1]]||'Name');r.fields=[mf('01','Entity Identifier Code',els[1],ENTITY[els[1]]),mf('02','Entity Type Qualifier',els[2],({'1':'Person','2':'Non-Person Entity'})[els[2]]),mf('03','Last Name or Organization Name',els[3]),mf('04','First Name',els[4]),mf('05','Middle Name',els[5]),mf('06','Name Prefix',els[6]),mf('07','Name Suffix',els[7]),mf('08','ID Code Qualifier',els[8],IDQUAL[els[8]]),mf('09','Identification Code',els[9])];}
+      else if(id==='N1'){const n1lbl=els[1]==='P5'?'Plan Sponsor Name':els[1]==='IN'?'Insurer Name':'Organization Name';r.name=els[1]==='P5'?'N1 - Sponsor Name':els[1]==='IN'?'N1 - Payer':('N1 - '+(ENTITY[els[1]]||'Name'));r.fields=[mf('01','Entity Identifier Code',els[1],ENTITY[els[1]]),mf('02',n1lbl,els[2]),mf('03','ID Code Qualifier',els[3],IDQUAL[els[3]]),mf('04',els[1]==='P5'?'Sponsor Identifier':'Insurer ID Code',els[4])];}
+      else if(id==='N3'){r.name='N3 - Address Information';r.fields=[mf('01','Address Line 1',els[1]),mf('02','Address Line 2',els[2])];}
+      else if(id==='N4'){r.name='N4 - Geographic Location';r.fields=[mf('01','City',els[1]),mf('02','State',els[2]),mf('03','ZIP Code',els[3]),mf('04','Country',els[4])];}
+      else if(id==='DMG'){r.name='DMG - Demographic Information';r.fields=[mf('01','Date Format Qualifier',els[1],DATEFMT[els[1]]),mf('02','Date of Birth',els[2]),mf('03','Gender Code',els[3],GENDER[els[3]]),mf('04','Marital Status',els[4],MARITAL[els[4]])];}
+      else if(id==='HD'){r.name='HD - Health Coverage';r.fields=[mf('01','Maintenance Type Code',els[1],MTYPE[els[1]]),mf('03','Insurance Line Code',els[3],INSLINE[els[3]]),mf('04','Plan Coverage Description',els[4]),mf('05','Coverage Level Code',els[5],COVERAGE[els[5]])];}
+      else if(id==='HL'){const hlL=({'20':'Billing Provider','21':'Subscriber','22':'Dependent','23':'Patient'})[els[3]]||els[3];r.name='HL - Hierarchical Level ('+hlL+')';r.fields=[mf('01','Hierarchical ID Number',els[1]),mf('02','Hierarchical Parent ID',els[2]),mf('03','Hierarchical Level Code',els[3],hlL),mf('04','Hierarchical Child Code',els[4],({'0':'No Subordinate HL','1':'Additional Subordinate HL'})[els[4]])];}
+      else if(id==='CLM'){r.name='CLM - Claim Information';r.fields=[mf('01',"Claim Submitter's ID",els[1]),mf('02','Total Claim Charge Amount',els[2]),mf('05','Health Care Service Location',els[5]),mf('06','Provider Signature Indicator',els[6],({'Y':'Yes','N':'No'})[els[6]]),mf('08','Benefits Assignment Code',els[8],({'Y':'Yes','N':'No'})[els[8]]),mf('09','Release of Information Code',els[9])];}
+      else if(id==='HI'){r.name='HI - Health Care Information Codes (Diagnosis)';r.fields=els.slice(1).filter(Boolean).map(function(v,i){return{num:String(i+1).padStart(2,'0'),name:'Diagnosis Code '+(i+1),value:v};});}
+      else if(id==='SV1'){r.name='SV1 - Professional Service';r.fields=[mf('01','Medical Procedure Identifier',els[1]),mf('02','Line Item Charge Amount',els[2]),mf('03','Unit of Measurement',els[3]),mf('04','Quantity',els[4]),mf('07','Diagnosis Code Pointer',els[7])];}
+      else if(id==='LX'){r.name='LX - Header Number';r.fields=[mf('01','Assigned Number',els[1])];}
+      else if(id==='SBR'){r.name='SBR - Subscriber Information';r.fields=[mf('01','Payer Responsibility',els[1],({'P':'Primary','S':'Secondary','T':'Tertiary'})[els[1]]),mf('02','Individual Relationship Code',els[2],REL[els[2]]),mf('03','Reference Identification',els[3]),mf('09','Claim Filing Indicator',els[9])];}
+      else if(id==='PRV'){r.name='PRV - Provider Information';r.fields=[mf('01','Provider Code',els[1],({'BI':'Billing','PE':'Performing','RE':'Referring','SU':'Supervising','AT':'Attending'})[els[1]]),mf('02','Reference ID Qualifier',els[2]),mf('03','Reference Identification',els[3])];}
+      else if(id==='BPR'){r.name='BPR - Financial Information';r.fields=[mf('01','Transaction Handling Code',els[1]),mf('02','Total Payment Amount',els[2]),mf('03','Credit/Debit Flag',els[3],({'C':'Credit','D':'Debit'})[els[3]]),mf('04','Payment Method Code',els[4],({'ACH':'Automated Clearing House','CHK':'Check','FWT':'Fed Wire Transfer','NON':'Non-Payment Data'})[els[4]])];}
+      else if(id==='TRN'){r.name='TRN - Reassociation Trace Number';r.fields=[mf('01','Trace Type Code',els[1]),mf('02','Reference Identification',els[2]),mf('03','Originating Company ID',els[3])];}
+      else if(id==='CLP'){r.name='CLP - Claim Payment Information';r.fields=[mf('01',"Claim Submitter's ID",els[1]),mf('02','Claim Status Code',els[2],CLPSTATUS[els[2]]),mf('03','Charge Amount',els[3]),mf('04','Payment Amount',els[4]),mf('05','Patient Responsibility',els[5]),mf('06','Claim Filing Indicator',els[6])];}
+      else if(id==='CAS'){r.name='CAS - Claim Adjustment';r.fields=[mf('01','Adjustment Group Code',els[1],CASGROUP[els[1]]),mf('02','Adjustment Reason Code',els[2]),mf('03','Adjustment Amount',els[3])];}
+      else if(id==='SVC'){r.name='SVC - Service Payment Information';r.fields=[mf('01','Medical Procedure ID',els[1]),mf('02','Line Item Charge Amount',els[2]),mf('03','Line Item Payment Amount',els[3]),mf('04','Revenue Code',els[4]),mf('05','Quantity',els[5])];}
+      else if(id==='PLB'){r.name='PLB - Provider Level Adjustment';r.fields=[mf('01','Reference ID',els[1]),mf('02','Date',els[2]),mf('03','Reason Code',els[3]),mf('04','Amount',els[4])];}
+      else if(id==='BHT'){r.name='BHT - Beginning of Hierarchical Transaction';r.fields=[mf('01','Hierarchical Structure Code',els[1]),mf('02','Transaction Set Purpose Code',els[2],({'00':'Original','18':'Reissue','22':'Information Copy'})[els[2]]),mf('03','Reference Identification',els[3]),mf('04','Date',els[4]),mf('05','Time',els[5]),mf('06','Transaction Type Code',els[6],({'CH':'Chargeable','RP':'Reporting'})[els[6]])];}
+      else if(id==='PER'){r.name='PER - Administrative Communications Contact';r.fields=[mf('01','Contact Function Code',els[1]),mf('02','Name',els[2]),mf('03','Communication Qualifier',els[3]),mf('04','Communication Number',els[4])];}
+      else if(id==='COB'){r.name='COB - Coordination of Benefits';r.fields=[mf('01','Payer Responsibility Sequence',els[1]),mf('02','Reference ID',els[2]),mf('03','COB Code',els[3])];}
+      else{r.fields=els.slice(1).map(function(v,i){return v?{num:String(i+1).padStart(2,'0'),name:'Element '+(i+1),value:v}:null;}).filter(Boolean);}
+      r.fields=r.fields.filter(Boolean);return r;
+    }
+
+    // ─── LOOP PARSERS ────────────────────────────────────────────
+    function parse834(segs){let loops=[],i=0,hdr=[];while(i<segs.length&&segs[i].elements[0]!=='N1'){hdr.push(parseSegment(segs[i]));i++;}if(hdr.length)loops.push({id:'HDR',name:'Transaction Header',segments:hdr});if(i<segs.length&&segs[i].elements[0]==='N1'&&segs[i].elements[1]==='P5'){let l={id:'1000A',name:'Loop 1000A — Sponsor',segments:[]};while(i<segs.length&&!(segs[i].elements[0]==='N1'&&['IN','PR'].includes(segs[i].elements[1]))){l.segments.push(parseSegment(segs[i]));i++;}loops.push(l);}if(i<segs.length&&segs[i].elements[0]==='N1'&&['IN','PR'].includes(segs[i].elements[1])){let l={id:'1000B',name:'Loop 1000B — Payer',segments:[]};while(i<segs.length&&segs[i].elements[0]!=='INS'){l.segments.push(parseSegment(segs[i]));i++;}loops.push(l);}while(i<segs.length){if(segs[i].elements[0]==='INS'){let m={id:'2000',name:'Loop 2000 — Member Level Detail',segments:[]};m.segments.push(parseSegment(segs[i]));i++;while(i<segs.length&&['REF','DTP'].includes(segs[i].elements[0])){m.segments.push(parseSegment(segs[i]));i++;}loops.push(m);if(i<segs.length&&segs[i].elements[0]==='NM1'){let m2={id:'2100A',name:'Loop 2100A — Member Name',segments:[]};while(i<segs.length&&!['INS','HD'].includes(segs[i].elements[0])){m2.segments.push(parseSegment(segs[i]));i++;}loops.push(m2);}while(i<segs.length&&segs[i].elements[0]==='HD'){let m3={id:'2300',name:'Loop 2300 — Health Coverage',segments:[]};m3.segments.push(parseSegment(segs[i]));i++;while(i<segs.length&&!['HD','INS'].includes(segs[i].elements[0])){m3.segments.push(parseSegment(segs[i]));i++;}loops.push(m3);}}else{i++;}}return loops;}
+    function parse837(segs){let loops=[],i=0,hdr=[];while(i<segs.length&&segs[i].elements[0]!=='NM1'){hdr.push(parseSegment(segs[i]));i++;}if(hdr.length)loops.push({id:'HDR',name:'Transaction Header',segments:hdr});if(i<segs.length&&segs[i].elements[1]==='41'){let l={id:'1000A',name:'Loop 1000A — Submitter',segments:[]};while(i<segs.length&&!(segs[i].elements[0]==='NM1'&&segs[i].elements[1]==='40')){l.segments.push(parseSegment(segs[i]));i++;}loops.push(l);}if(i<segs.length&&segs[i].elements[0]==='NM1'&&segs[i].elements[1]==='40'){let l={id:'1000B',name:'Loop 1000B — Receiver',segments:[]};while(i<segs.length&&segs[i].elements[0]!=='HL'){l.segments.push(parseSegment(segs[i]));i++;}loops.push(l);}while(i<segs.length){if(segs[i].elements[0]==='HL'){const lvl=segs[i].elements[3];const hlN={'20':'Loop 2000A — Billing Provider','22':'Loop 2000B — Subscriber','23':'Loop 2000C — Patient'};let l={id:'HL_'+lvl,name:hlN[lvl]||'Loop 2000 — Hierarchical',segments:[]};l.segments.push(parseSegment(segs[i]));i++;while(i<segs.length&&segs[i].elements[0]!=='HL'){if(segs[i].elements[0]==='CLM'){let cl={id:'2300',name:'Loop 2300 — Claim',segments:[]};cl.segments.push(parseSegment(segs[i]));i++;while(i<segs.length&&!['HL','CLM'].includes(segs[i].elements[0])){if(segs[i].elements[0]==='LX'){let sl={id:'2400',name:'Loop 2400 — Service Line',segments:[]};sl.segments.push(parseSegment(segs[i]));i++;while(i<segs.length&&!['HL','CLM','LX'].includes(segs[i].elements[0])){sl.segments.push(parseSegment(segs[i]));i++;}loops.push(sl);}else{cl.segments.push(parseSegment(segs[i]));i++;}}loops.push(cl);}else{l.segments.push(parseSegment(segs[i]));i++;}}loops.push(l);}else{i++;}}return loops;}
+    function parse835(segs){let loops=[],i=0,hdr=[];while(i<segs.length&&segs[i].elements[0]!=='NM1'){hdr.push(parseSegment(segs[i]));i++;}if(hdr.length)loops.push({id:'HDR',name:'Financial Information Header',segments:hdr});while(i<segs.length){if(segs[i].elements[0]==='CLP'){let cl={id:'2100',name:'Loop 2100 — Claim Payment',segments:[]};cl.segments.push(parseSegment(segs[i]));i++;while(i<segs.length&&segs[i].elements[0]!=='CLP'){if(segs[i].elements[0]==='SVC'){let sl={id:'2110',name:'Loop 2110 — Service Payment',segments:[]};sl.segments.push(parseSegment(segs[i]));i++;while(i<segs.length&&!['CLP','SVC'].includes(segs[i].elements[0])){sl.segments.push(parseSegment(segs[i]));i++;}loops.push(sl);}else{cl.segments.push(parseSegment(segs[i]));i++;}}loops.push(cl);}else{loops.push({id:'OTHER',name:'Header Segment',segments:[parseSegment(segs[i])]});i++;}}return loops;}
+
+    function parseST(raws,si,gsCode){const st=raws[si].split('*'),code=st[1];const ts={code,name:TXSET[code]||'Unknown Transaction',controlNumber:st[2],implementation:st[3],raw:raws[si]+'~',startIndex:si,endIndex:si,loops:[],_gsCode:gsCode};ts.STFields=[{num:'01',name:'Transaction Set Identifier Code',value:code,code:TXSET[code]},{num:'02',name:'Transaction Set Control Number',value:st[2]},{num:'03',name:'Implementation Convention',value:st[3]}];const body=[];let i=si+1;while(i<raws.length){const els=raws[i].split('*');if(els[0]==='SE'){ts.SE={raw:raws[i]+'~',fields:[{num:'01',name:'Number Of Included Segments',value:els[1]},{num:'02',name:'Transaction Set Control Number',value:els[2]}]};ts.endIndex=i;break;}body.push({raw:raws[i]+'~',elements:els});i++;}ts._rawBody=body;if(code==='834')ts.loops=parse834(body);else if(code==='837')ts.loops=parse837(body);else if(code==='835')ts.loops=parse835(body);else ts.loops=[{id:'BODY',name:'Transaction Body',segments:body.map(parseSegment)}];return ts;}
+    function parseGS(raws,si){const gs=raws[si].split('*');const fg={raw:raws[si]+'~',senderID:gs[2],receiverID:gs[3],funcCode:gs[1],transactionSets:[],startIndex:si,endIndex:si,fields:[{num:'01',name:'Functional Identifier Code',value:gs[1],code:GSCODE[gs[1]]},{num:'02',name:"Application Sender's Code",value:gs[2]},{num:'03',name:"Application Receiver's Code",value:gs[3]},{num:'04',name:'Date',value:gs[4]},{num:'05',name:'Time',value:gs[5]},{num:'06',name:'Group Control Number',value:gs[6]},{num:'07',name:'Responsible Agency Code',value:gs[7]},{num:'08',name:'Version/Release/Industry ID',value:gs[8]}]};let i=si+1;while(i<raws.length){const els=raws[i].split('*');if(els[0]==='ST'){const ts=parseST(raws,i,gs[1]);fg.transactionSets.push(ts);i=ts.endIndex+1;}else if(els[0]==='GE'){fg.GE={raw:raws[i]+'~',fields:[{num:'01',name:'Number of Transaction Sets',value:els[1]},{num:'02',name:'Group Control Number',value:els[2]}]};fg.endIndex=i;break;}else{i++;}}return fg;}
+
+    function parseEDI(content){try{const rawSegs=content.replace(/\r\n/g,'\n').replace(/\r/g,'\n').trim().split('~').map(s=>s.trim()).filter(s=>s.length>0);if(!rawSegs.length)return{error:'File is empty — no segments found.'};const isa=rawSegs[0].split('*');if(isa[0]!=='ISA')return{error:'File must begin with ISA segment. Found: '+isa[0]};if(isa.length<17)return{error:'ISA malformed — needs 16 data elements, found '+(isa.length-1)};const result={envelope:{},functionalGroups:[],_rawSegs:rawSegs};result.envelope.ISA={raw:rawSegs[0]+'~',senderQualifier:isa[5],senderId:isa[6]?.trim(),receiverQualifier:isa[7],receiverId:isa[8]?.trim(),fields:[{num:'01',name:'Authorization Information Qualifier',value:isa[1]},{num:'02',name:'Authorization Information',value:isa[2]},{num:'03',name:'Security Information Qualifier',value:isa[3]},{num:'04',name:'Security Information',value:isa[4]},{num:'05',name:'Interchange ID Qualifier (Sender)',value:isa[5]},{num:'06',name:'Interchange Sender ID',value:isa[6]?.trim()},{num:'07',name:'Interchange ID Qualifier (Receiver)',value:isa[7]},{num:'08',name:'Interchange Receiver ID',value:isa[8]?.trim()},{num:'09',name:'Interchange Date',value:isa[9]},{num:'10',name:'Interchange Time',value:isa[10]},{num:'11',name:'Repetition Separator',value:isa[11]},{num:'12',name:'Interchange Control Version Number',value:isa[12]},{num:'13',name:'Interchange Control Number',value:isa[13]},{num:'14',name:'Acknowledgment Requested',value:isa[14],code:{'0':'No Acknowledgment Requested','1':'Acknowledgment Requested'}[isa[14]]},{num:'15',name:'Usage Indicator',value:isa[15],code:{'T':'Test Data','P':'Production Data','I':'Information'}[isa[15]]},{num:'16',name:'Component Element Separator',value:isa[16]?.charAt(0)}]};let i=1;while(i<rawSegs.length){const els=rawSegs[i].split('*');if(els[0]==='GS'){const fg=parseGS(rawSegs,i);result.functionalGroups.push(fg);i=fg.endIndex+1;}else if(els[0]==='IEA'){result.envelope.IEA={raw:rawSegs[i]+'~',fields:[{num:'01',name:'Number of Included Functional Groups',value:els[1]},{num:'02',name:'Interchange Control Number',value:els[2]}]};i++;}else{i++;}}return result;}catch(err){return{error:'Parse error: '+err.message};}}
+
+    // ─── SAMPLES ─────────────────────────────────────────────────
+    const SAMPLES=[
+      {key:'834c',label:'834 — Benefit Enrollment',sub:'Clean · SNIP 1-6 pass',icon:'📋',badge:'CLEAN',bc:'#22c55e',content:'ISA*00*          *00*          *ZZ*SPONSORID      *ZZ*PAYERID        *260101*1200*^*00501*000000001*0*T*:~GS*BE*SPONSORID*PAYERID*20260101*1200*1*X*005010X220A1~ST*834*0001*005010X220A1~BGN*00*REF12345*20260101*120000****2~N1*P5*ACME MANUFACTURING*FI*953630868~N1*IN*ALPHA HEALTH PLAN*FI*953761231~INS*Y*18*021*20*A***FT~REF*0F*SUB123456789~DTP*356*D8*20260101~NM1*IL*1*SMITH*JOHN*A***34*123456789~N3*123 MAIN STREET~N4*NEW YORK*NY*10001~DMG*D8*19850315*M~HD*021**HLT*GOLD PPO*FAM~DTP*348*D8*20260101~DTP*349*D8*20261231~SE*17*0001~GE*1*1~IEA*1*000000001~'},
+      {key:'834e',label:'834 — With HIPAA Violations',sub:'Invalid date + bad state code',icon:'⚠️',badge:'ERRORS',bc:'#ef4444',content:'ISA*00*          *00*          *ZZ*SPONSORID      *ZZ*PAYERID        *260301*0900*^*00501*000000002*0*T*:~GS*BE*SPONSORID*PAYERID*20260301*0900*2*X*005010X220A1~ST*834*0001*005010X220A1~BGN*00*REF99999*20260301*090000****2~N1*P5*BETA CORP*FI*123456789~N1*IN*OMEGA HEALTH*FI*987654321~INS*Y*18*021*20*A***FT~REF*0F*SUB987654321~DTP*356*D8*20260301~NM1*IL*1*JONES*MARY*B***34*987654321~N3*456 OAK AVE~N4*LOS ANGELES*ZZ*90001~DMG*D8*19901122*F~HD*021**HLT*SILVER HMO*ESP~DTP*348*D8*20260301~DTP*349*D8*20260229~SE*16*0001~GE*1*2~IEA*1*000000002~'},
+      {key:'837p',label:'837P — Professional Claim',sub:'Full HL hierarchy · CLM · SV1',icon:'🏥',badge:'837P',bc:'#3b82f6',content:'ISA*00*          *00*          *ZZ*BILLERID       *ZZ*PAYERID        *260115*0800*^*00501*000000003*0*T*:~GS*HC*BILLERID*PAYERID*20260115*0800*3*X*005010X222A1~ST*837*0001*005010X222A1~BHT*0019*00*BATCH001*20260115*080000*CH~NM1*41*2*ACME MEDICAL GROUP*****XX*1234567890~PER*IC*BILLING DEPT*TE*5551234567~NM1*40*2*BLUE CROSS*****PI*PAYERID~HL*1**20*1~PRV*BI*PXC*207Q00000X~NM1*85*2*ACME MEDICAL GROUP*****XX*1234567890~N3*789 PROVIDER LANE~N4*CHICAGO*IL*60601~HL*2*1*22*0~SBR*P*18*GROUP001**CI~NM1*IL*1*JOHNSON*ROBERT***34*111223333~N3*321 PATIENT RD~N4*CHICAGO*IL*60602~DMG*D8*19780620*M~CLM*CLAIM001*250.00***11:B:1*Y*A*Y*I~DTP*431*D8*20260110~HI*ABK:J069*ABF:Z790~LX*1~SV1*HC:99213*150.00*UN*1***1~DTP*472*D8*20260110~LX*2~SV1*HC:85025*100.00*UN*1***1~DTP*472*D8*20260110~SE*30*0001~GE*1*3~IEA*1*000000003~'},
+      {key:'835',label:'835 — Claim Payment/Remittance',sub:'BPR · CLP · SVC · CAS adjustments',icon:'💰',badge:'835',bc:'#a855f7',content:'ISA*00*          *00*          *ZZ*PAYERID        *ZZ*PROVIDERID     *260120*1000*^*00501*000000004*0*T*:~GS*HP*PAYERID*PROVIDERID*20260120*1000*4*X*005010X221A1~ST*835*0001*005010X221A1~BPR*I*350.00*C*ACH*CCP**01*111000025*DA*1234567890*1234567890**01*321000000*DA*0987654321*20260120~TRN*1*CHECKNUM001*1234567890~NM1*PR*2*BLUE CROSS*****PI*PAYERID~NM1*PE*2*ACME MEDICAL GROUP*****XX*1234567890~N3*789 PROVIDER LANE~N4*CHICAGO*IL*60601~CLP*CLAIM001*1*250.00*225.00*25.00*CI~NM1*QC*1*JOHNSON*ROBERT~SVC*HC:99213*150.00*135.00~CAS*CO*45*15.00~SVC*HC:85025*100.00*90.00~CAS*CO*45*10.00~SE*15*0001~GE*1*4~IEA*1*000000004~'}
+    ];
+
+    // ─── DESIGN TOKENS ───────────────────────────────────────────
+    const BG='#080e1d',NAV='#0a1220',CARD='#0d1526',CARD2='#101d34',BORD='#1a2d4e',BORD2='#223358';
+    const TEXT='#e2e8f0',MUTED='#64748b',FAINT='#1e2d4a';
+    const ORG='#f97316',ORG2='#ea580c',BLU='#3b82f6',GRN='#22c55e',RED='#ef4444',YEL='#f59e0b',PUR='#a855f7',CYN='#06b6d4';
+    const MONO="'Courier New',Courier,monospace",SANS="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif";
+    const SC={1:BLU,2:CYN,3:GRN,4:YEL,5:PUR,6:ORG};
+    const SNIP_INFO=[{n:1,l:'Syntax Integrity',d:'ISA/IEA structure, GS/GE balance, ST/SE count, control numbers'},{n:2,l:'IG Requirements',d:'Required segments, element rules, NPI format, LX increment'},{n:3,l:'Balance Testing',d:'SV1 sum vs CLM total, 835 BPR vs CLP payment totals'},{n:4,l:'Inter-Segment Rules',d:'Conditional pairs: NM108/109, DTP 3-element rule, HD presence'},{n:5,l:'External Code Sets',d:'ICD-10, state codes, ZIP format, date calendar validation'},{n:6,l:'Service-Specific',d:'DTP*472 per LX, COBRA members, termination dates, NPI qualifier'}];
+    function rgb(h){const m={[RED]:'239,68,68',[YEL]:'245,158,11',[GRN]:'34,197,94',[BLU]:'59,130,246',[CYN]:'6,182,212',[PUR]:'168,85,247',[ORG]:'249,115,22',[ORG2]:'234,88,12'};return m[h]||'255,255,255';}
+
+    // ─── UI PRIMITIVES ───────────────────────────────────────────
+    function Pill({color,label}){return<span style={{background:'rgba('+rgb(color)+',0.12)',color,fontSize:11,fontWeight:700,padding:'4px 12px',borderRadius:16,border:'1px solid rgba('+rgb(color)+',0.3)',whiteSpace:'nowrap'}}>{label}</span>;}
+    function FBtn({active,onClick,label,color}){return<button onClick={onClick} style={{background:active?color:'transparent',color:active?'#fff':color,border:'1px solid '+(active?color:'rgba('+rgb(color)+',0.35)'),borderRadius:20,padding:'4px 12px',fontSize:11,fontWeight:700,cursor:'pointer',fontFamily:SANS}}>{label}</button>;}
+    function SHead({label,color}){return<div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10,marginTop:8}}><div style={{width:3,height:18,background:color,borderRadius:2,flexShrink:0}}/><span style={{fontSize:13,fontWeight:800,color:TEXT}}>{label}</span></div>;}
+    function Btn({onClick,children,variant,sm,disabled,sx={}}){const v=variant||'primary';const base={display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,border:'none',cursor:disabled?'not-allowed':'pointer',fontFamily:SANS,fontWeight:700,borderRadius:8,transition:'opacity 0.15s',opacity:disabled?0.5:1,fontSize:sm?12:13,padding:sm?'6px 14px':'10px 22px',...sx};const vs={primary:{background:'linear-gradient(135deg,'+ORG+','+ORG2+')',color:'#fff'},ghost:{background:'rgba(255,255,255,0.04)',color:MUTED,border:'1px solid '+BORD},outline:{background:'transparent',color:ORG,border:'1px solid '+ORG},subtle:{background:CARD2,color:TEXT,border:'1px solid '+BORD}};return<button style={{...base,...vs[v]}} onClick={onClick} disabled={disabled}>{children}</button>;}
+
+    // ─── SEGMENT CARD ────────────────────────────────────────────
+    function SegCard({seg}){
+      const hasErr=seg.errors&&seg.errors.length>0;
+      return(
+        <div style={{marginBottom:8,borderRadius:8,overflow:'hidden',border:'1px solid '+(hasErr?'rgba(239,68,68,0.45)':BORD),background:hasErr?'rgba(239,68,68,0.03)':CARD}}>
+          <div style={{background:hasErr?'rgba(239,68,68,0.12)':FAINT,padding:'6px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span style={{fontSize:12,fontWeight:700,color:hasErr?'#fca5a5':TEXT}}>{seg.name}</span>
+            {hasErr&&<span style={{fontSize:10,fontWeight:800,color:RED,background:'rgba(239,68,68,0.15)',padding:'2px 8px',borderRadius:10,border:'1px solid rgba(239,68,68,0.3)'}}>⚠ {seg.errors.length} error{seg.errors.length>1?'s':''}</span>}
+          </div>
+          <div style={{background:'rgba(59,130,246,0.05)',borderBottom:'1px solid '+BORD,padding:'5px 14px',fontFamily:MONO,fontSize:11,color:'#93c5fd',wordBreak:'break-all',lineHeight:1.5}}>{seg.raw}</div>
+          {seg.fields&&seg.fields.length>0&&(
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <tbody>
+                {seg.fields.map(function(f,i){return(
+                  <tr key={i} style={{borderBottom:'1px solid rgba(26,45,78,0.6)',background:i%2===0?'transparent':'rgba(255,255,255,0.01)'}}>
+                    <td style={{padding:'6px 14px',fontWeight:600,color:'#94a3b8',width:220,whiteSpace:'nowrap',borderRight:'1px solid '+BORD,fontSize:11}}>{f.num}. {f.name}</td>
+                    <td style={{padding:'6px 14px',color:f.error?RED:TEXT}}>
+                      {f.error&&<span style={{marginRight:6}}>⚠️</span>}
+                      {f.code?<span><span style={{fontFamily:MONO,fontSize:11,color:MUTED}}>{f.value}</span><span> — {f.code}</span></span>:<span style={{fontFamily:MONO,fontSize:11}}>{f.value}</span>}
+                      {f.error&&<div style={{color:RED,fontSize:11,marginTop:3,fontStyle:'italic'}}>{f.error}</div>}
+                    </td>
+                  </tr>
+                );})}
+              </tbody>
+            </table>
+          )}
+        </div>
+      );
+    }
+
+    // ─── LOOP CARD ───────────────────────────────────────────────
+    const LC={HDR:{dot:'#94a3b8',bg:'rgba(148,163,184,0.05)',border:'rgba(148,163,184,0.15)'},'1000A':{dot:YEL,bg:'rgba(245,158,11,0.05)',border:'rgba(245,158,11,0.15)'},'1000B':{dot:CYN,bg:'rgba(6,182,212,0.05)',border:'rgba(6,182,212,0.15)'},'2000':{dot:PUR,bg:'rgba(168,85,247,0.05)',border:'rgba(168,85,247,0.15)'},'2100A':{dot:GRN,bg:'rgba(34,197,94,0.05)',border:'rgba(34,197,94,0.15)'},'2300':{dot:ORG,bg:'rgba(249,115,22,0.05)',border:'rgba(249,115,22,0.15)'},'2400':{dot:RED,bg:'rgba(239,68,68,0.05)',border:'rgba(239,68,68,0.15)'},'2100':{dot:GRN,bg:'rgba(34,197,94,0.05)',border:'rgba(34,197,94,0.15)'},'2110':{dot:YEL,bg:'rgba(245,158,11,0.05)',border:'rgba(245,158,11,0.15)'},HL_20:{dot:BLU,bg:'rgba(59,130,246,0.05)',border:'rgba(59,130,246,0.15)'},HL_22:{dot:PUR,bg:'rgba(168,85,247,0.05)',border:'rgba(168,85,247,0.15)'},HL_23:{dot:CYN,bg:'rgba(6,182,212,0.05)',border:'rgba(6,182,212,0.15)'}};
+    function LoopCard({loop,defaultOpen}){
+      const [open,setOpen]=useState(defaultOpen!==false);
+      const errs=loop.segments.reduce(function(a,s){return a+(s.errors?s.errors.length:0);},0);
+      const lc=LC[loop.id]||{dot:MUTED,bg:'rgba(255,255,255,0.02)',border:BORD};
+      return(
+        <div style={{marginBottom:10,borderRadius:10,overflow:'hidden',border:'1px solid '+(errs>0?'rgba(239,68,68,0.4)':lc.border),background:lc.bg}}>
+          <div onClick={function(){setOpen(!open);}} style={{cursor:'pointer',padding:'9px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',background:'rgba(0,0,0,0.15)'}}>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <span style={{width:8,height:8,borderRadius:'50%',background:lc.dot,boxShadow:'0 0 6px '+lc.dot,display:'inline-block',flexShrink:0}}/>
+              <span style={{fontSize:13,fontWeight:700,color:TEXT}}>{loop.name}</span>
+              <span style={{fontSize:10,color:MUTED,background:'rgba(255,255,255,0.05)',padding:'2px 8px',borderRadius:10,fontWeight:600}}>{loop.segments.length} seg</span>
+              {errs>0&&<span style={{fontSize:10,fontWeight:800,color:RED,background:'rgba(239,68,68,0.15)',padding:'2px 9px',borderRadius:10,border:'1px solid rgba(239,68,68,0.3)'}}>⚠ {errs}</span>}
+            </div>
+            <span style={{fontSize:11,color:MUTED,userSelect:'none',flexShrink:0}}>{open?'▼ hide':'▶ show'}</span>
+          </div>
+          {open&&<div style={{padding:'10px 14px'}}>{loop.segments.map(function(s,i){return<SegCard key={i} seg={s}/>;})}</div>}
+        </div>
+      );
+    }
+
+    // ─── VALIDATION PANEL ────────────────────────────────────────
+    function ValidationPanel({vr}){
+      const [open,setOpen]=useState(true);
+      const [filter,setFilter]=useState(0);
+      const allIssues=[].concat(vr.s1,vr.s2,vr.s3,vr.s4,vr.s5,vr.s6);
+      const shown=filter===0?allIssues:allIssues.filter(function(x){return x.level===filter;});
+      const clean=vr.errors===0&&vr.warnings===0;
+      return(
+        <div style={{background:CARD,border:'1px solid '+BORD,borderRadius:12,marginBottom:20,overflow:'hidden'}}>
+          <div onClick={function(){setOpen(!open);}} style={{cursor:'pointer',padding:'14px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',background:clean?'rgba(34,197,94,0.06)':'rgba(239,68,68,0.05)',borderBottom:open?'1px solid '+BORD:'none'}}>
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <div style={{width:38,height:38,borderRadius:10,background:clean?'rgba(34,197,94,0.12)':'rgba(239,68,68,0.12)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>{clean?'✅':'🔍'}</div>
+              <div>
+                <div style={{fontWeight:800,fontSize:15,color:TEXT}}>HIPAA SNIP Validation Report</div>
+                <div style={{fontSize:11,color:MUTED,marginTop:2}}>Levels 1–6 · WEDI/SNIP Compliance · 005010</div>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',justifyContent:'flex-end'}}>
+              {vr.errors>0&&<Pill color={RED} label={'✗ '+vr.errors+' ERROR'+(vr.errors>1?'S':'')}/>}
+              {vr.warnings>0&&<Pill color={YEL} label={'⚠ '+vr.warnings+' WARN'}/>}
+              {vr.info>0&&<Pill color={CYN} label={'ℹ '+vr.info+' INFO'}/>}
+              {clean&&<Pill color={GRN} label="✓ ALL PASS"/>}
+              <span style={{color:MUTED,fontSize:12,marginLeft:4}}>{open?'▲':'▼'}</span>
+            </div>
+          </div>
+          {open&&(
+            <div style={{padding:20}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))',gap:8,marginBottom:18}}>
+                {SNIP_INFO.map(function(si){const items=vr['s'+si.n]||[];const errs=items.filter(function(x){return x.severity==='ERROR';}).length;const ok=items.length===0;const col=SC[si.n];const isActive=filter===si.n;return(
+                  <div key={si.n} onClick={function(){setFilter(isActive?0:si.n);}} style={{cursor:'pointer',background:isActive?'rgba('+rgb(col)+',0.1)':'rgba(255,255,255,0.02)',border:'1px solid '+(isActive?col:BORD),borderRadius:8,padding:10,transition:'border 0.15s'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+                      <span style={{fontSize:10,fontWeight:800,color:col,letterSpacing:0.8}}>SNIP {si.n}</span>
+                      {ok?<span style={{fontSize:10,color:GRN,fontWeight:700}}>✓</span>:<span style={{fontSize:10,color:errs>0?RED:YEL,fontWeight:700}}>{items.length}</span>}
+                    </div>
+                    <div style={{fontSize:11,fontWeight:700,color:TEXT,marginBottom:3}}>{si.l}</div>
+                    <div style={{fontSize:10,color:MUTED,lineHeight:1.5}}>{si.d}</div>
+                  </div>
+                );})}
+              </div>
+              {allIssues.length>0&&<div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}><FBtn active={filter===0} onClick={function(){setFilter(0);}} label={'All ('+allIssues.length+')'} color={ORG}/>{SNIP_INFO.map(function(si){const cnt=(vr['s'+si.n]||[]).length;if(!cnt)return null;return<FBtn key={si.n} active={filter===si.n} onClick={function(){setFilter(filter===si.n?0:si.n);}} label={'SNIP '+si.n+' ('+cnt+')'} color={SC[si.n]}/>;})}</div>}
+              {shown.length>0?(
+                <div style={{display:'flex',flexDirection:'column',gap:5,maxHeight:300,overflowY:'auto'}}>
+                  {shown.map(function(e,i){const col=e.severity==='ERROR'?RED:e.severity==='WARN'?YEL:CYN;const icon=e.severity==='ERROR'?'✗':e.severity==='WARN'?'⚠':'ℹ';return(
+                    <div key={i} style={{background:'rgba('+rgb(col)+',0.06)',border:'1px solid rgba('+rgb(col)+',0.2)',borderRadius:7,padding:'8px 12px',display:'flex',gap:10,alignItems:'flex-start'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
+                        <span style={{color:col,fontWeight:800,fontSize:13}}>{icon}</span>
+                        <span style={{fontSize:9,fontWeight:800,color:SC[e.level],background:'rgba('+rgb(SC[e.level])+',0.12)',padding:'2px 6px',borderRadius:4}}>S{e.level}</span>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,fontWeight:600,color:TEXT,marginBottom:2,lineHeight:1.4}}>{e.message}</div>
+                        <div style={{fontSize:10,color:MUTED}}>Segment: <code style={{color:col,fontFamily:MONO}}>{e.seg}</code><span style={{margin:'0 6px',opacity:0.3}}>·</span>Field: <code style={{color:MUTED,fontFamily:MONO}}>{e.field}</code></div>
+                      </div>
+                    </div>
+                  );})}
+                </div>
+              ):<div style={{textAlign:'center',padding:24,color:GRN,fontWeight:700,fontSize:13}}>✓ No issues {filter>0?'in SNIP Level '+filter:'across all SNIP levels'}</div>}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── RESULTS VIEW ────────────────────────────────────────────
+    function ResultsView({parsed,fileName,onReset,vr}){
+      if(parsed.error)return(<div style={{padding:28}}><div style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.35)',borderRadius:12,padding:24,marginBottom:20}}><div style={{color:RED,fontWeight:800,fontSize:16,marginBottom:10}}>⚠ Parse Error</div><div style={{fontFamily:MONO,fontSize:13,color:'#fca5a5',lineHeight:1.6}}>{parsed.error}</div></div><Btn onClick={onReset} variant="outline">← Try Another File</Btn></div>);
+      const isa=parsed.envelope.ISA;
+      const allTS=parsed.functionalGroups.flatMap(function(fg){return fg.transactionSets;});
+      const dtpE=allTS.flatMap(function(ts){return ts.loops;}).flatMap(function(l){return l.segments;}).reduce(function(a,s){return a+(s.errors?s.errors.length:0);},0);
+      const totalErrors=(vr?vr.errors:0)+dtpE;
+      const totalWarns=vr?vr.warnings:0;
+      const clean=totalErrors===0&&totalWarns===0;
+      return(
+        <div style={{padding:'0 24px 40px'}} className="fade-up">
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',background:CARD,border:'1px solid '+BORD,borderRadius:10,padding:'10px 16px',marginBottom:20}}>
+            <Btn onClick={onReset} variant="ghost" sm>↩ Start Over</Btn>
+            <Btn onClick={function(){alert('PDF export available in a production server deployment.');}} variant="ghost" sm>📄 Get PDF</Btn>
+            <span style={{width:1,height:20,background:BORD,display:'inline-block'}}/>
+            <span style={{fontSize:12,color:MUTED}}>📄 <strong style={{color:TEXT}}>{fileName}</strong></span>
+            <div style={{marginLeft:'auto',display:'flex',gap:8,flexWrap:'wrap'}}>
+              {clean?<Pill color={GRN} label="✓ HIPAA Compliant"/>:<Pill color={RED} label={'✗ '+totalErrors+' Error'+(totalErrors!==1?'s':'')}/>}
+              {totalWarns>0&&<Pill color={YEL} label={'⚠ '+totalWarns+' Warn'}/>}
+            </div>
+          </div>
+          {vr&&<ValidationPanel vr={vr}/>}
+          <div style={{background:CARD,border:'1px solid '+BORD,borderRadius:10,overflow:'hidden',marginBottom:20}}>
+            <div style={{background:'rgba(249,115,22,0.08)',borderBottom:'1px solid rgba(249,115,22,0.15)',padding:'8px 16px',fontSize:11,fontWeight:800,color:ORG,letterSpacing:1}}>SENDER \ RECEIVER</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr'}}>
+              {[['ISA Sender ID',isa.senderQualifier+':'+isa.senderId],['ISA Receiver ID',isa.receiverQualifier+':'+isa.receiverId],['GS Sender ID',(parsed.functionalGroups[0]||{}).senderID],['GS Receiver ID',(parsed.functionalGroups[0]||{}).receiverID]].map(function(p,i){return(<div key={i} style={{padding:'10px 16px',borderBottom:'1px solid '+BORD,borderRight:i%2===0?'1px solid '+BORD:'none'}}><div style={{fontSize:10,color:MUTED,marginBottom:3,fontWeight:600}}>{p[0]}</div><div style={{fontFamily:MONO,fontSize:13,fontWeight:700,color:ORG}}>{p[1]}</div></div>);})}</div></div>
+          <SHead label="ISA — Interchange Control Header" color={ORG}/>
+          <SegCard seg={{raw:isa.raw,segId:'ISA',name:'ISA - Interchange Control Header',fields:isa.fields,errors:[]}}/>
+          {parsed.functionalGroups.map(function(fg,fgi){return(
+            <div key={fgi}>
+              <SHead label={'Functional Group '+(fgi+1)+' — '+(GSCODE[fg.funcCode]||fg.funcCode)} color={BLU}/>
+              <SegCard seg={{raw:fg.raw,segId:'GS',name:'GS - Functional Group Header',fields:fg.fields,errors:[]}}/>
+              {fg.transactionSets.map(function(ts,tsi){return(
+                <div key={tsi} style={{marginBottom:24,borderRadius:12,overflow:'hidden',border:'1px solid '+BORD}}>
+                  <div style={{background:'linear-gradient(135deg,#0f2060,#0a1632)',padding:'14px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div><div style={{fontWeight:800,fontSize:15,color:'#fff'}}>{ts.code} — {ts.name}</div><div style={{fontSize:10,color:'rgba(255,255,255,0.4)',marginTop:3,fontFamily:MONO}}>ST*{ts.code}*{ts.controlNumber}{ts.implementation?'*'+ts.implementation:''}</div></div>
+                    <div style={{background:'rgba(255,255,255,0.06)',borderRadius:6,padding:'3px 10px',fontSize:10,color:'rgba(255,255,255,0.5)',fontFamily:MONO}}>{ts.implementation||'005010'}</div>
+                  </div>
+                  <div style={{padding:16,background:CARD}}>
+                    <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,marginBottom:14}}><tbody>{(ts.STFields||[]).filter(function(f){return f.value;}).map(function(f,i){return(<tr key={i} style={{borderBottom:'1px solid rgba(26,45,78,0.5)',background:i%2===0?'transparent':'rgba(255,255,255,0.01)'}}><td style={{padding:'6px 12px',fontWeight:600,color:'#94a3b8',width:220,fontSize:11}}>{f.num}. {f.name}</td><td style={{padding:'6px 12px',color:TEXT,fontSize:12}}>{f.value}{f.code?' — '+f.code:''}</td></tr>);})}</tbody></table>
+                    {ts.loops.map(function(loop,li){return<LoopCard key={li} loop={loop} defaultOpen={li<4}/>;  })}
+                    {ts.SE&&<SegCard seg={{raw:ts.SE.raw,segId:'SE',name:'SE - Transaction Set Trailer',fields:ts.SE.fields,errors:[]}}/>}
+                  </div>
+                </div>
+              );})}
+              {fg.GE&&<SegCard seg={{raw:fg.GE.raw,segId:'GE',name:'GE - Functional Group Trailer',fields:fg.GE.fields,errors:[]}}/>}
+            </div>
+          );})}
+          {parsed.envelope.IEA&&<SegCard seg={{raw:parsed.envelope.IEA.raw,segId:'IEA',name:'IEA - Interchange Control Trailer',fields:parsed.envelope.IEA.fields,errors:[]}}/>}
+        </div>
+      );
+    }
+
+    // ─── UPLOAD PAGE ─────────────────────────────────────────────
+    function UploadPage({onParsed}){
+      const [drag,setDrag]=useState(false);
+      const [loading,setLoading]=useState(null);
+      const ref=useRef();
+      const go=useCallback(function(file){if(!file)return;setLoading(file.name);const reader=new FileReader();reader.onload=function(e){const p=parseEDI(e.target.result);const v=runValidation(p);setTimeout(function(){setLoading(null);onParsed(p,file.name,e.target.result,v);},500);};reader.readAsText(file);},[onParsed]);
+      const loadSample=useCallback(function(s){setLoading(s.label);setTimeout(function(){const p=parseEDI(s.content);const v=runValidation(p);setLoading(null);onParsed(p,s.label+'.edi',s.content,v);},400);},[onParsed]);
+      return(
+        <div style={{padding:'28px 24px',maxWidth:880,margin:'0 auto'}}>
+          <div onDragOver={function(e){e.preventDefault();setDrag(true);}} onDragLeave={function(){setDrag(false);}} onDrop={function(e){e.preventDefault();setDrag(false);go(e.dataTransfer.files[0]);}} onClick={function(){if(!loading)ref.current&&ref.current.click();}}
+            style={{border:'2px dashed '+(drag?ORG:'rgba(249,115,22,0.25)'),borderRadius:16,background:drag?'rgba(249,115,22,0.04)':'rgba(255,255,255,0.01)',padding:'52px 24px',textAlign:'center',cursor:'pointer',transition:'all 0.2s',marginBottom:28}}>
+            <input ref={ref} type="file" style={{display:'none'}} accept=".edi,.txt,.x12,.834,.835,.837,.270,.271" onChange={function(e){go(e.target.files[0]);}}/>
+            {loading?(
+              <div><div style={{width:52,height:52,margin:'0 auto 16px',borderRadius:'50%',border:'3px solid '+BORD,borderTopColor:ORG,animation:'spin 0.9s linear infinite'}}/><div style={{fontSize:16,fontWeight:800,color:TEXT,marginBottom:6}}>Parsing EDI file...</div><div style={{fontSize:12,color:MUTED,marginBottom:6}}>{loading}</div><div style={{fontSize:12,color:ORG,fontWeight:600}}>Running HIPAA SNIP Level 1–6 validation...</div></div>
+            ):(
+              <div><div style={{fontSize:48,marginBottom:14,lineHeight:1}}>📂</div><div style={{fontSize:17,fontWeight:800,color:TEXT,marginBottom:8}}>Drop EDI files here or click to upload</div><div style={{fontSize:13,color:MUTED,marginBottom:16}}>HIPAA X12 5010 · SNIP Levels 1–6 Validation</div><div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}}>{['834','837P','837I','835','270/271','999'].map(function(t){return<span key={t} style={{background:'rgba(249,115,22,0.1)',color:ORG,fontSize:11,fontWeight:700,padding:'3px 12px',borderRadius:12,border:'1px solid rgba(249,115,22,0.2)'}}>{t}</span>;})}</div></div>
+            )}
+          </div>
+          <div style={{background:CARD,border:'1px solid '+BORD,borderRadius:12,overflow:'hidden'}}>
+            <div style={{background:'rgba(249,115,22,0.07)',borderBottom:'1px solid rgba(249,115,22,0.15)',padding:'11px 20px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <span style={{fontSize:11,fontWeight:800,color:ORG,letterSpacing:1}}>📋 EDI SAMPLE FILES</span>
+              <span style={{fontSize:11,color:MUTED}}>SNIP 1–6 included</span>
+            </div>
+            {SAMPLES.map(function(s,i){return(
+              <div key={s.key} onClick={function(){if(!loading)loadSample(s);}}
+                style={{padding:'14px 20px',borderBottom:i<SAMPLES.length-1?'1px solid '+BORD:'none',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',transition:'background 0.15s'}}
+                onMouseEnter={function(e){e.currentTarget.style.background='rgba(249,115,22,0.04)';}} onMouseLeave={function(e){e.currentTarget.style.background='transparent';}}>
+                <div style={{display:'flex',alignItems:'center',gap:14}}>
+                  <div style={{width:40,height:40,borderRadius:10,background:CARD2,border:'1px solid '+BORD,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{s.icon}</div>
+                  <div><div style={{fontWeight:700,fontSize:14,color:TEXT}}>{s.label}</div><div style={{fontSize:11,color:MUTED,marginTop:2}}>{s.sub}</div></div>
+                </div>
+                <div style={{display:'flex',gap:10,alignItems:'center'}}><Pill color={s.bc} label={s.badge}/><span style={{color:MUTED,fontSize:13}}>→</span></div>
+              </div>
+            );})}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── MY FILES ────────────────────────────────────────────────
+    function MyFilesPage({files,onLoad}){
+      if(!files.length)return(<div style={{padding:'64px 24px',textAlign:'center'}}><div style={{fontSize:52,marginBottom:16}}>🗂️</div><div style={{fontSize:18,fontWeight:800,color:TEXT,marginBottom:8}}>No files yet</div><div style={{fontSize:13,color:MUTED}}>Upload or load a sample to get started</div></div>);
+      return(
+        <div style={{padding:24}}><h2 style={{color:TEXT,marginTop:0,marginBottom:20,fontWeight:800}}>My Files</h2>
+          <div style={{background:CARD,border:'1px solid '+BORD,borderRadius:12,overflow:'hidden'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+              <thead><tr style={{background:'rgba(249,115,22,0.08)',borderBottom:'1px solid '+BORD}}>{['File','Type','Errors','Warnings','Analyzed',''].map(function(h){return<th key={h} style={{padding:'10px 16px',textAlign:'left',fontWeight:700,color:ORG,fontSize:11,letterSpacing:0.8}}>{h}</th>;})}</tr></thead>
+              <tbody>{files.map(function(f,i){return(
+                <tr key={i} style={{borderBottom:'1px solid '+BORD}} onMouseEnter={function(e){e.currentTarget.style.background='rgba(255,255,255,0.02)';}} onMouseLeave={function(e){e.currentTarget.style.background='transparent';}}>
+                  <td style={{padding:'11px 16px',fontWeight:600,color:TEXT,fontFamily:MONO,fontSize:11}}>{f.name}</td>
+                  <td style={{padding:'11px 16px'}}><span style={{background:'rgba(59,130,246,0.1)',color:'#93c5fd',fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:6}}>{f.txCode}</span></td>
+                  <td style={{padding:'11px 16px'}}>{f.errorCount>0?<span style={{color:RED,fontWeight:700}}>✗ {f.errorCount}</span>:<span style={{color:GRN,fontWeight:700}}>✓</span>}</td>
+                  <td style={{padding:'11px 16px'}}>{f.warnCount>0?<span style={{color:YEL,fontWeight:700}}>⚠ {f.warnCount}</span>:<span style={{color:MUTED}}>—</span>}</td>
+                  <td style={{padding:'11px 16px',color:MUTED,fontSize:11}}>{f.date}</td>
+                  <td style={{padding:'11px 16px'}}><Btn onClick={function(){onLoad(f);}} variant="subtle" sm>View</Btn></td>
+                </tr>
+              );})}</tbody>
+            </table>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── SAMPLES REFERENCE ───────────────────────────────────────
+    function SamplesPage({onLoad}){
+      const tx=[
+        {c:'834',n:'Benefit Enrollment and Maintenance',d:'Enrolls/terminates benefits. Loops: 1000A Sponsor, 1000B Payer, 2000 Member, 2100A Name, 2300 Coverage.',col:YEL,sk:'834c'},
+        {c:'837P',n:'Professional Health Care Claim',d:'Physician claims. HL hierarchy, CLM, SV1 service lines, HI diagnosis codes, DTP*472 service dates.',col:BLU,sk:'837p'},
+        {c:'837I',n:'Institutional Health Care Claim',d:'Hospital claims. SV2 institutional service lines, revenue codes, UB-04 data elements.',col:'#6366f1',sk:null},
+        {c:'837D',n:'Dental Health Care Claim',d:'Dental claims with SV3 service lines, tooth numbers, dental procedure codes.',col:PUR,sk:null},
+        {c:'835',n:'Health Care Claim Payment/Advice',d:'Electronic Remittance Advice. BPR payment, CLP claims, SVC services, CAS adjustments, PLB adjustments.',col:GRN,sk:'835'},
+        {c:'270',n:'Eligibility, Coverage or Benefit Inquiry',d:'Verify member eligibility and benefits before service. Sent to health plans.',col:CYN,sk:null},
+        {c:'271',n:'Eligibility, Coverage or Benefit Response',d:'Health plan response with coverage, copays, deductibles, benefit detail.',col:'#0ea5e9',sk:null},
+        {c:'276',n:'Health Care Claim Status Request',d:'Request current claim status: received, pending, paid, denied.',col:ORG,sk:null},
+        {c:'277',n:'Health Care Claim Status Notification',d:'Response with claim status codes and service-level status.',col:RED,sk:null},
+        {c:'820',n:'Premium Payment',d:'Premium remittance from employers to health plans with enrollment detail.',col:'#84cc16',sk:null},
+        {c:'278',n:'Prior Authorization Request/Response',d:'Prior auth and referrals with clinical justification and payer decision.',col:'#ec4899',sk:null},
+        {c:'999',n:'Implementation Acknowledgment',d:'Acknowledges X12 5010 transactions: accept, reject, or partial accept.',col:'#a78bfa',sk:null},
+      ];
+      return(
+        <div style={{padding:24}}>
+          <div style={{marginBottom:24}}><h2 style={{color:TEXT,marginTop:0,marginBottom:8,fontWeight:800}}>HIPAA X12 5010 Transaction Sets</h2><p style={{color:MUTED,fontSize:13,margin:0}}>Complete reference for all HIPAA-mandated X12 5010 transactions. Each supports full SNIP Levels 1–6 validation.</p></div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>
+            {tx.map(function(s){return(
+              <div key={s.c} style={{background:CARD,border:'1px solid '+BORD,borderRadius:10,padding:16,transition:'border 0.18s'}} onMouseEnter={function(e){e.currentTarget.style.borderColor='rgba('+rgb(s.col)+',0.4)';}} onMouseLeave={function(e){e.currentTarget.style.borderColor=BORD;}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                  <span style={{background:'rgba('+rgb(s.col)+',0.12)',color:s.col,borderRadius:6,padding:'3px 12px',fontWeight:800,fontSize:13,border:'1px solid rgba('+rgb(s.col)+',0.25)'}}>{s.c}</span>
+                  {s.sk&&<Btn sm variant="outline" onClick={function(){const sm=SAMPLES.find(function(x){return x.key===s.sk;});if(sm){const p=parseEDI(sm.content);const v=runValidation(p);onLoad(p,sm.label+'.edi',sm.content,v);}}}>Load</Btn>}
+                </div>
+                <div style={{fontWeight:700,color:TEXT,marginBottom:6,fontSize:13}}>{s.n}</div>
+                <div style={{fontSize:12,color:MUTED,lineHeight:1.6}}>{s.d}</div>
+              </div>
+            );})}
+          </div>
+        </div>
+      );
+    }
+
+    // ─── AUTH PAGE ───────────────────────────────────────────────
+    function AuthPage({onLogin}){
+      const [mode,setMode]=useState('login');
+      const [email,setEmail]=useState('');
+      const [pw,setPw]=useState('');
+      const [name,setName]=useState('');
+      const [err,setErr]=useState('');
+      const [loading,setLoading]=useState(false);
+      const inp={width:'100%',padding:'11px 14px',border:'1px solid '+BORD,borderRadius:8,fontSize:14,background:'rgba(255,255,255,0.03)',color:TEXT,outline:'none',fontFamily:SANS,transition:'border 0.18s'};
+      const lbl={fontSize:11,fontWeight:700,color:MUTED,display:'block',marginBottom:6,letterSpacing:0.5};
+      function go(){
+        if(!email||!pw){setErr('Please fill in all required fields.');return;}
+        if(mode==='register'&&!name){setErr('Please enter your name.');return;}
+        if(!email.includes('@')){setErr('Please enter a valid email address.');return;}
+        if(pw.length<4){setErr('Password must be at least 4 characters.');return;}
+        setErr('');setLoading(true);
+        setTimeout(function(){setLoading(false);onLogin({email,name:name||email.split('@')[0]});},700);
+      }
+      return(
+        <div style={{minHeight:'100vh',background:BG,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:SANS,position:'relative',overflow:'hidden'}}>
+          <div style={{position:'absolute',top:'-10%',right:'-5%',width:500,height:500,borderRadius:'50%',background:'rgba(249,115,22,0.04)',filter:'blur(80px)',pointerEvents:'none'}}/>
+          <div style={{position:'absolute',bottom:'-20%',left:'-5%',width:400,height:400,borderRadius:'50%',background:'rgba(59,130,246,0.04)',filter:'blur(80px)',pointerEvents:'none'}}/>
+          <div style={{position:'relative',background:CARD,borderRadius:16,border:'1px solid '+BORD,padding:40,width:440,maxWidth:'92vw',boxShadow:'0 32px 80px rgba(0,0,0,0.6)'}}>
+            <div style={{textAlign:'center',marginBottom:32}}>
+              <div style={{display:'inline-flex',alignItems:'center',gap:10,marginBottom:10}}>
+                <div style={{background:'linear-gradient(135deg,'+BLU+',#0f2060)',borderRadius:10,padding:'8px 14px',display:'flex',alignItems:'center',border:'1px solid rgba(249,115,22,0.25)'}}>
+                  <span style={{color:ORG,fontWeight:900,fontSize:20,letterSpacing:2}}>IBA</span>
+                  <span style={{color:'#fff',fontWeight:900,fontSize:20,letterSpacing:2}}>TPA</span>
+                </div>
+              </div>
+              <div style={{fontSize:14,fontWeight:800,color:TEXT,letterSpacing:0.5}}>EDI Viewer</div>
+              <div style={{fontSize:11,color:MUTED,marginTop:4}}>HIPAA X12 5010 · SNIP Level 1–6</div>
+            </div>
+            <div style={{fontSize:20,fontWeight:800,color:TEXT,marginBottom:6}}>{mode==='login'?'Sign In':'Create Account'}</div>
+            <div style={{fontSize:13,color:MUTED,marginBottom:24}}>{mode==='login'?'Use your account credentials to log in.':'Register a new account to get started.'}</div>
+            {err&&<div style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',borderRadius:8,padding:'10px 14px',marginBottom:16,color:RED,fontSize:13}}>{err}</div>}
+            {mode==='register'&&<div style={{marginBottom:14}}><label style={lbl}>FULL NAME</label><input style={inp} value={name} onChange={function(e){setName(e.target.value);}} placeholder="Your Name" onFocus={function(e){e.target.style.borderColor=ORG;}} onBlur={function(e){e.target.style.borderColor=BORD;}}/></div>}
+            <div style={{marginBottom:14}}><label style={lbl}>E-MAIL</label><input style={inp} type="email" value={email} onChange={function(e){setEmail(e.target.value);}} placeholder="you@ibatpa.com" onFocus={function(e){e.target.style.borderColor=ORG;}} onBlur={function(e){e.target.style.borderColor=BORD;}}/></div>
+            <div style={{marginBottom:24}}><label style={lbl}>PASSWORD</label><input style={inp} type="password" value={pw} onChange={function(e){setPw(e.target.value);}} placeholder="••••••••" onKeyDown={function(e){if(e.key==='Enter')go();}} onFocus={function(e){e.target.style.borderColor=ORG;}} onBlur={function(e){e.target.style.borderColor=BORD;}}/></div>
+            <button onClick={go} disabled={loading} style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,'+ORG+','+ORG2+')',color:'#fff',border:'none',borderRadius:8,fontWeight:800,fontSize:15,cursor:loading?'wait':'pointer',fontFamily:SANS,letterSpacing:1,boxShadow:'0 4px 20px rgba(249,115,22,0.3)',opacity:loading?0.8:1}}>
+              {loading?'SIGNING IN...':mode==='login'?'LOG IN':'CREATE ACCOUNT'}
+            </button>
+            <div style={{marginTop:20,fontSize:13,textAlign:'center'}}>
+              {mode==='login'?<><span onClick={function(){setMode('register');}} style={{color:ORG,cursor:'pointer',marginRight:16}}>Register as a new user</span><span style={{color:MUTED,cursor:'pointer'}}>Forgot password?</span></>:<span onClick={function(){setMode('login');}} style={{color:ORG,cursor:'pointer'}}>Already have an account? Sign in</span>}
+            </div>
+            <div style={{marginTop:24,paddingTop:18,borderTop:'1px solid '+BORD,textAlign:'center',fontSize:11,color:FAINT}}>
+              Built by <span style={{color:MUTED,fontWeight:600}}>Tharun Kilaru</span> · International Benefits Administrators · © 2026
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── MAIN APP ────────────────────────────────────────────────
+    function App(){
+      const [user,setUser]=useState(null);
+      const [page,setPage]=useState('upload');
+      const [parsed,setParsed]=useState(null);
+      const [fileName,setFileName]=useState('');
+      const [vr,setVr]=useState(null);
+      const [myFiles,setMyFiles]=useState([]);
+
+      useEffect(function(){
+        try{const raw=localStorage.getItem('ibatpa_files');if(raw)setMyFiles(JSON.parse(raw));}catch(e){}
+      },[]);
+
+      const handleParsed=useCallback(function(result,name,content,validation){
+        setParsed(result);setFileName(name);setVr(validation||null);
+        if(!result.error){
+          const allTS=(result.functionalGroups||[]).flatMap(function(fg){return fg.transactionSets;});
+          const txCode=(allTS[0]||{}).code||'???';
+          const dtpE=allTS.flatMap(function(ts){return ts.loops||[];}).flatMap(function(l){return l.segments||[];}).reduce(function(a,s){return a+(s.errors?s.errors.length:0);},0);
+          const entry={name,txCode,errorCount:(validation?validation.errors:0)+dtpE,warnCount:validation?validation.warnings:0,date:new Date().toLocaleString(),content};
+          setMyFiles(function(prev){
+            const u=[entry].concat(prev.filter(function(f){return f.name!==name;})).slice(0,30);
+            try{localStorage.setItem('ibatpa_files',JSON.stringify(u.map(function(f){return Object.assign({},f,{content:undefined});})));}catch(e){}
+            return u;
+          });
+        }
+      },[]);
+
+      function nav(p){setParsed(null);setPage(p);}
+
+      if(!user)return<AuthPage onLogin={function(u){setUser(u);}}/>;
+
+      const navItems=[{l:'HOME',p:'upload'},{l:'UPLOAD',p:'upload'},{l:'MY FILES',p:'myfiles'},{l:'EDI SAMPLES',p:'samples'}];
+
+      return(
+        <div style={{minHeight:'100vh',background:BG,color:TEXT,fontFamily:SANS}}>
+          {/* HEADER */}
+          <header style={{background:NAV,borderBottom:'1px solid '+BORD,position:'sticky',top:0,zIndex:200}}>
+            <div style={{maxWidth:1300,margin:'0 auto',padding:'0 20px',display:'flex',alignItems:'center',height:56}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginRight:28}}>
+                <div style={{background:'linear-gradient(135deg,'+BLU+',#0f2060)',borderRadius:8,padding:'4px 12px',display:'flex',alignItems:'center',border:'1px solid rgba(249,115,22,0.2)'}}>
+                  <span style={{color:ORG,fontWeight:900,fontSize:15,letterSpacing:2}}>IBA</span>
+                  <span style={{color:'#fff',fontWeight:900,fontSize:15,letterSpacing:2}}>TPA</span>
+                </div>
+                <div>
+                  <div style={{fontSize:12,fontWeight:800,color:TEXT}}>EDI Viewer</div>
+                  <div style={{fontSize:9,color:MUTED,letterSpacing:0.5}}>HIPAA X12 · SNIP 1–6</div>
+                </div>
+              </div>
+              <nav style={{display:'flex',gap:2}}>
+                {navItems.map(function(n,i){const active=page===n.p;return<button key={i} onClick={function(){nav(n.p);}} style={{background:'none',border:'none',cursor:'pointer',padding:'8px 12px',fontSize:12,fontWeight:700,color:active?ORG:MUTED,borderBottom:'2px solid '+(active?ORG:'transparent'),letterSpacing:0.5,transition:'all 0.15s',fontFamily:SANS}}>{n.l}</button>;})}
+              </nav>
+              <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:10}}>
+                <span style={{fontSize:12,color:MUTED,background:'rgba(255,255,255,0.03)',border:'1px solid '+BORD,borderRadius:20,padding:'4px 12px'}}>👤 {user.email}</span>
+                <Btn sm variant="ghost" onClick={function(){setUser(null);}}>Log out</Btn>
+              </div>
+            </div>
+          </header>
+
+          {/* HERO */}
+          {page==='upload'&&!parsed&&(
+            <>
+              <div style={{background:'linear-gradient(160deg,#0d1f4a 0%,#080e1d 60%)',padding:'44px 24px',borderBottom:'1px solid '+BORD,position:'relative',overflow:'hidden'}}>
+                <div style={{position:'absolute',top:'-20%',right:'-5%',width:500,height:500,borderRadius:'50%',background:'rgba(249,115,22,0.03)',filter:'blur(80px)',pointerEvents:'none'}}/>
+                <div style={{maxWidth:1300,margin:'0 auto',position:'relative'}}>
+                  <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+                    <span style={{background:'rgba(249,115,22,0.1)',color:ORG,fontSize:11,fontWeight:800,padding:'4px 12px',borderRadius:20,border:'1px solid rgba(249,115,22,0.25)',letterSpacing:1}}>HIPAA X12 5010</span>
+                    <span style={{background:'rgba(34,197,94,0.08)',color:GRN,fontSize:11,fontWeight:700,padding:'4px 12px',borderRadius:20,border:'1px solid rgba(34,197,94,0.2)'}}>✓ SNIP LEVELS 1–6</span>
+                  </div>
+                  <h1 style={{margin:'0 0 12px',fontSize:'clamp(28px,4vw,42px)',fontWeight:900,letterSpacing:-1.5,lineHeight:1.1}}><span style={{color:ORG}}>EDI</span> <span style={{color:'#fff'}}>VIEWER</span></h1>
+                  <p style={{margin:'0 0 24px',fontSize:14,color:'rgba(255,255,255,0.55)',maxWidth:480,lineHeight:1.8}}>Parse and validate HIPAA X12 EDI files. Full SNIP Level 1–6 engine: syntax, IG requirements, balance checks, inter-segment rules, external code sets, and service-specific validation.</p>
+                  <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+                    <Btn>GET STARTED</Btn>
+                    <Btn variant="ghost" sx={{color:'rgba(255,255,255,0.6)'}} onClick={function(){setPage('samples');}}>VIEW EDI SAMPLES</Btn>
+                  </div>
+                  <div style={{marginTop:22,fontSize:11,color:'rgba(255,255,255,0.28)'}}>Built by <strong style={{color:'rgba(255,255,255,0.45)'}}>Tharun Kilaru</strong> · International Benefits Administrators (IBA) · Garden City, NY</div>
+                </div>
+              </div>
+              <div style={{background:'rgba(255,255,255,0.01)',borderBottom:'1px solid '+BORD,padding:'10px 24px',overflowX:'auto'}}>
+                <div style={{maxWidth:1300,margin:'0 auto',display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                  <span style={{fontSize:10,color:MUTED,fontWeight:700,marginRight:4,flexShrink:0}}>VALIDATION:</span>
+                  {SNIP_INFO.map(function(si){const col=SC[si.n];return(<div key={si.n} style={{display:'flex',alignItems:'center',gap:5,background:'rgba('+rgb(col)+',0.08)',border:'1px solid rgba('+rgb(col)+',0.2)',borderRadius:20,padding:'3px 12px',fontSize:11,fontWeight:700,color:col,flexShrink:0,whiteSpace:'nowrap'}}><span style={{width:5,height:5,borderRadius:'50%',background:col,display:'inline-block'}}/>SNIP {si.n} · {si.l}</div>);})}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* MAIN CONTENT */}
+          <main style={{maxWidth:1300,margin:'0 auto',padding:'24px 0'}}>
+            {page==='upload'&&!parsed&&<UploadPage onParsed={handleParsed}/>}
+            {page==='upload'&&parsed&&<ResultsView parsed={parsed} fileName={fileName} onReset={function(){setParsed(null);}} vr={vr}/>}
+            {page==='myfiles'&&<MyFilesPage files={myFiles} onLoad={function(f){const p=parseEDI(f.content||'');const v=runValidation(p);setParsed(p);setFileName(f.name);setVr(v);setPage('upload');}}/>}
+            {page==='samples'&&<SamplesPage onLoad={function(p,name,content,v){setParsed(p);setFileName(name);setVr(v);setPage('upload');}}/>}
+          </main>
+
+          {/* FOOTER */}
+          <footer style={{background:NAV,borderTop:'1px solid '+BORD,padding:'16px 24px',marginTop:48}}>
+            <div style={{maxWidth:1300,margin:'0 auto',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10}}>
+              <div style={{fontSize:12,color:MUTED}}>IBATPA EDI Viewer · Built by <strong style={{color:TEXT}}>Tharun Kilaru</strong> · International Benefits Administrators · © 2026</div>
+              <div style={{display:'flex',gap:10,fontSize:11,color:FAINT}}><span>HIPAA X12 5010</span><span>·</span><span>SNIP Levels 1–6</span><span>·</span><span>834 · 837 · 835 · 270/271</span></div>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+
+    // ─── RENDER ──────────────────────────────────────────────────
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
